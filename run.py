@@ -2,7 +2,7 @@ import time
 from src.Simulator import Simulator
 
 if __name__ == '__main__':
-    forced_load = 50
+    #forced_load = 50
     # num_simulations = 1
     #
     # Simulator(sim_config_file, trace, verbose, forced_load, num_simulations)
