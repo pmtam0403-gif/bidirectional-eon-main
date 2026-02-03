@@ -22,9 +22,9 @@ class FIPPBFS(RSA):
         self.cp: Optional[ControlPlaneForRSA] = None
         self.graph = None
 
-    # ============================================================
+
     # SIMULATION INTERFACE
-    # ============================================================
+
     def simulation_interface(self, xml: ET.Element, pt: PhysicalTopology,
                              vt: VirtualTopology, cp: ControlPlaneForRSA,
                              traffic: TrafficGenerator):
@@ -32,10 +32,7 @@ class FIPPBFS(RSA):
         self.vt = vt
         self.cp = cp
         self.graph = pt.get_weighted_graph()
-
-    # ============================================================
     # FLOW ARRIVAL
-    # ============================================================
     def flow_arrival(self, flow: Flow) -> None:
         demand = math.ceil(flow.get_rate() / self.pt.get_slot_capacity())
 
@@ -55,7 +52,7 @@ class FIPPBFS(RSA):
 
         if ok:
             pcycle = self.establish_pcycle(p_links, p_nodes, p_slots, demand)
-# 🔥 BẮT BUỘC: add P‑cycle vào VirtualTopology
+
             self.vt.add_p_cycles(pcycle)
             self.create_lightpath(flow, wp_links, wp_slots, pcycle, backup_paths, reused=False)
             return
@@ -63,9 +60,9 @@ class FIPPBFS(RSA):
         # 3) Block
         self.cp.block_flow(flow.get_id())
 
-    # ============================================================
+ 
     # WORKING PATH — BFS VERSION
-    # ============================================================
+
     def find_working_path(self, flow: Flow, demand_in_slots: int):
         """
         BFS-based working path search.
@@ -92,7 +89,6 @@ class FIPPBFS(RSA):
 
                 search_graph.add_edge(u, v)
 
-        # 🔥 FIX: nếu src/dst không nằm trong graph ở slot này → bỏ qua
             if src not in search_graph.nodes or dst not in search_graph.nodes:
                 continue
 
@@ -120,9 +116,8 @@ class FIPPBFS(RSA):
                 for i in range(len(best_path)-1)]
 
         return True, links, slot_list, []
-    # ============================================================
     # CREATE LIGHTPATH
-    # ============================================================
+
     def create_lightpath(self, flow: Flow, links: List[int], slot_list: List[Slot],
                           pcycle: PCycle, backup_paths: List[List[int]], reused: bool):
 
@@ -145,9 +140,8 @@ class FIPPBFS(RSA):
                                                backup_paths)
             pcycle.add_protected_lightpath(protected_lp)
 
-    # ============================================================
-    # INITIALIZE FIPP (unchanged)
-    # ============================================================
+    # INITIALIZE FIPP 
+
     def initialize_fipp(self, flow: Flow, demand: int):
         path1, path2 = self.get_two_edge_disjoint_paths(flow)
         if not path1 or not path2:
@@ -197,33 +191,24 @@ class FIPPBFS(RSA):
         return False, None, None, None, None, None, None
 ##
     def establish_pcycle(self, p_links, p_nodes, p_slots, demand):
-        """
-        Tạo P-Cycle đúng theo constructor của PCycle.
-        """
-
-    # PCycle yêu cầu 3 positional arguments
         pcycle = PCycle(p_links, p_nodes, p_slots)
-
-    # Reserve slots trên tất cả các link của P-cycle
         for edge in p_links:
             src = self.pt.get_src_link(edge)
             dst = self.pt.get_dst_link(edge)
             self.pt.reserve_slots(src, dst, p_slots)
 
         return pcycle
-    # ============================================================
+
     # EDGE-DISJOINT PATHS (unchanged)
-    # ============================================================
+
     def get_two_edge_disjoint_paths(self, flow: Flow):
         src = flow.get_source()
         dst = flow.get_destination()
 
         G = self.pt.get_graph()
 
-    # 🔥 FIX: nếu src/dst không có trong topology → không tìm được đường
         if src not in G.nodes or dst not in G.nodes:
-        # Có thể in cảnh báo nếu muốn
-        # print(f"[WARN] Flow {src}->{dst} uses node not in topology")
+
             return None, None
 
         try:
@@ -245,9 +230,8 @@ class FIPPBFS(RSA):
 
         return path1, path2
 
-    # ============================================================
-    # UTILITY FUNCTIONS (unchanged)
-    # ============================================================
+    # UTILITY FUNCTIONS 
+
     def image_and(self, img1, img2, res):
         for i in range(len(res)):
             for j in range(len(res[0])):
@@ -296,29 +280,19 @@ class FIPPBFS(RSA):
                     return lst, (c_idx, list(range(i, i+demand)))
 
         return lst, None
+        
+    # FLOW DEPARTURE 
 
-    # ============================================================
-    # FLOW DEPARTURE (unchanged)
-    # ============================================================
     def flow_departure(self, flow: Flow) -> None:
-    # Không làm gì cả, ControlPlane đã xử lý giải phóng tài nguyên rồi
-        return
-        # ============================================================
-    # P-CYCLE EXTENSION
-    # ============================================================
-    def try_extend_pcycle(self, pcycle: PCycle, demand: int):
-        """
-        Cố gắng mở rộng hoặc tái sử dụng P-cycle hiện tại để chứa thêm 'demand' slots.
-        Trả về:
-            - True, slot_list  nếu đủ slot
-            - False, None      nếu không thể mở rộng
-        """
 
-        # Nếu P-cycle hiện tại đã đủ slot thì dùng luôn
+        return
+    # P-CYCLE EXTENSION
+
+    def try_extend_pcycle(self, pcycle: PCycle, demand: int):
+
         if pcycle.has_sufficient_slots(demand):
             return True, pcycle.get_slot_list()
 
-        # Ngược lại: tính giao phổ (AND) trên tất cả các link của P-cycle
         spectrum = [[True for _ in range(self.pt.get_num_slots())]
                     for _ in range(self.pt.get_cores())]
 
@@ -330,10 +304,10 @@ class FIPPBFS(RSA):
                 spectrum
             )
 
-        # Lấy core, start, end hiện tại của P-cycle
+
         core, start, end = pcycle.get_core_slot_range()
 
-        # Cố gắng mở rộng hoặc thay thế đoạn false để đủ 'demand'
+
         spectrum, idx = self.extend_or_replace_false(spectrum, core, start, end, demand)
         if idx is None:
             return False, None
