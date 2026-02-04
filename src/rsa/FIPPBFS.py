@@ -22,9 +22,6 @@ class FIPPBFS(RSA):
         self.cp: Optional[ControlPlaneForRSA] = None
         self.graph = None
 
-
-    # SIMULATION INTERFACE
-
     def simulation_interface(self, xml: ET.Element, pt: PhysicalTopology,
                              vt: VirtualTopology, cp: ControlPlaneForRSA,
                              traffic: TrafficGenerator):
@@ -32,7 +29,8 @@ class FIPPBFS(RSA):
         self.vt = vt
         self.cp = cp
         self.graph = pt.get_weighted_graph()
-    # FLOW ARRIVAL
+
+
     def flow_arrival(self, flow: Flow) -> None:
         demand = math.ceil(flow.get_rate() / self.pt.get_slot_capacity())
 
@@ -60,63 +58,33 @@ class FIPPBFS(RSA):
         # 3) Block
         self.cp.block_flow(flow.get_id())
 
- 
-    # WORKING PATH — BFS VERSION
 
-    def find_working_path(self, flow: Flow, demand_in_slots: int):
-        """
-        BFS-based working path search.
-        - Link without enough slots is ignored.
-        - If no path found → return False.
-        """
+    def find_working_path(self, flow, demand):
+        src, dst = flow.get_source(), flow.get_destination()
+        G = self.pt.get_graph()
 
-        best_path = None
-        best_slot_index = None
-        best_hop = float("inf")
-
-        src = flow.get_source()
-        dst = flow.get_destination()
-
-        for slot_start in range(0, self.pt.get_num_slots() - demand_in_slots):
-
-            search_graph = nx.Graph()
-
-            for u, v in self.pt.get_graph().edges():
-                spectrum = self.pt.get_spectrum(u, v)[0]
-
-                if not all(spectrum[slot_start:slot_start + demand_in_slots]):
-                    continue
-
-                search_graph.add_edge(u, v)
-
-            if src not in search_graph.nodes or dst not in search_graph.nodes:
-                continue
-
-            try:
-                path = nx.shortest_path(
-                    search_graph,
-                    source=src,
-                    target=dst
-                )
-            except nx.NetworkXNoPath:
-                continue
-
-            hop = len(path) - 1
-            if hop < best_hop:
-                best_hop = hop
-                best_path = path
-                best_slot_index = slot_start
-
-        if best_path is None:
+        try:
+            paths = nx.shortest_simple_paths(G, src, dst)
+        except nx.NetworkXNoPath:
             return False, None, None, None
 
-        slot_list = [Slot(0, i) for i in range(best_slot_index,
-                                           best_slot_index + demand_in_slots)]
-        links = [self.pt.get_link_id(best_path[i], best_path[i+1])
-                for i in range(len(best_path)-1)]
+        for path in paths:
+            spectrum = [[True]*self.pt.get_num_slots()
+                        for _ in range(self.pt.get_cores())]
 
-        return True, links, slot_list, []
-    # CREATE LIGHTPATH
+            for i in range(len(path)-1):
+                spectrum = self.image_and(
+                    self.pt.get_spectrum(path[i], path[i+1]),
+                    spectrum, spectrum
+                )
+
+            ok, _, slots = self.calculate_slot_range(spectrum, demand)
+            if ok:
+                links = [self.pt.get_link_id(path[i], path[i+1])
+                        for i in range(len(path)-1)]
+                return True, links, slots, []
+
+        return False, None, None, None
 
     def create_lightpath(self, flow: Flow, links: List[int], slot_list: List[Slot],
                           pcycle: PCycle, backup_paths: List[List[int]], reused: bool):
@@ -139,8 +107,6 @@ class FIPPBFS(RSA):
                                                links, len(slot_list),
                                                backup_paths)
             pcycle.add_protected_lightpath(protected_lp)
-
-    # INITIALIZE FIPP 
 
     def initialize_fipp(self, flow: Flow, demand: int):
         path1, path2 = self.get_two_edge_disjoint_paths(flow)
@@ -191,15 +157,16 @@ class FIPPBFS(RSA):
         return False, None, None, None, None, None, None
 ##
     def establish_pcycle(self, p_links, p_nodes, p_slots, demand):
+
         pcycle = PCycle(p_links, p_nodes, p_slots)
+
+
         for edge in p_links:
             src = self.pt.get_src_link(edge)
             dst = self.pt.get_dst_link(edge)
             self.pt.reserve_slots(src, dst, p_slots)
 
         return pcycle
-
-    # EDGE-DISJOINT PATHS (unchanged)
 
     def get_two_edge_disjoint_paths(self, flow: Flow):
         src = flow.get_source()
@@ -230,7 +197,6 @@ class FIPPBFS(RSA):
 
         return path1, path2
 
-    # UTILITY FUNCTIONS 
 
     def image_and(self, img1, img2, res):
         for i in range(len(res)):
@@ -280,18 +246,16 @@ class FIPPBFS(RSA):
                     return lst, (c_idx, list(range(i, i+demand)))
 
         return lst, None
-        
-    # FLOW DEPARTURE 
 
     def flow_departure(self, flow: Flow) -> None:
 
         return
-    # P-CYCLE EXTENSION
 
     def try_extend_pcycle(self, pcycle: PCycle, demand: int):
-
+      
         if pcycle.has_sufficient_slots(demand):
             return True, pcycle.get_slot_list()
+
 
         spectrum = [[True for _ in range(self.pt.get_num_slots())]
                     for _ in range(self.pt.get_cores())]
@@ -306,7 +270,6 @@ class FIPPBFS(RSA):
 
 
         core, start, end = pcycle.get_core_slot_range()
-
 
         spectrum, idx = self.extend_or_replace_false(spectrum, core, start, end, demand)
         if idx is None:
