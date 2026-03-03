@@ -102,13 +102,10 @@ class BfsRSA(RSA):
         return len(path1), path1, len(path2), path2
 
 
-    # ================== REMOVE USED EDGES ==================
-    # FIX 1 + FIX 3: Không xóa cạnh nữa
+
 
     def remove_used_edges(self, graph: nx.Graph):
-        # Không xóa cạnh LP
-        # Không xóa cạnh p-cycle
-        # Tất cả thông tin chiếm dụng đã nằm trong spectrum
+
         return
 
     # ================== FIND WORKING PATH ==================
@@ -121,7 +118,7 @@ class BfsRSA(RSA):
             edge_spectrum = self.pt.get_spectrum(u, v)
             new_graph[u][v]['spectrum'] = edge_spectrum
 
-        # FIX: remove_used_edges không còn xóa cạnh
+     
         self.remove_used_edges(new_graph)
 
         best_path = None
@@ -153,17 +150,13 @@ class BfsRSA(RSA):
 
         new_graph = self.pt.get_graph().copy()
 
-    # attach spectrum info
+ 
         for u, v in new_graph.edges():
             edge_spectrum = self.pt.get_spectrum(u, v)
             new_graph[u][v]['spectrum'] = edge_spectrum
 
-    # FIX: không xóa cạnh LP/p-cycle
         self.remove_used_edges(new_graph)
 
-    # ============================
-    # HÀM CHECK DISJOINT
-    # ============================
         def is_disjoint(path, wp):
             wp_edges = {(wp[i], wp[i+1]) for i in range(len(wp)-1)}
             p_edges = {(path[i], path[i+1]) for i in range(len(path)-1)}
@@ -174,9 +167,7 @@ class BfsRSA(RSA):
         best_slot_index = None
         weight_best_path = float("inf")
 
-    # ============================
-    # SLOT LOOP
-    # ============================
+
         for j in range(0, self.pt.get_num_slots() - demand_in_slots + 1):
 
             search_graph = nx.Graph()
@@ -194,10 +185,7 @@ class BfsRSA(RSA):
             if not (path1 and path2):
                 continue
 
-        # ============================
-        # NEW LOGIC:
-        # Chỉ cần 1 path disjoint với working path
-        # ============================
+ 
             disjoint1 = is_disjoint(path1, working_path)
             disjoint2 = is_disjoint(path2, working_path)
 
