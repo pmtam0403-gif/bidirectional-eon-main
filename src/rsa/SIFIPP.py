@@ -8,7 +8,7 @@ from src.PCycle import PCycle
 from src.ProtectingLightPath import ProtectingLightPath
 
 
-class FIPPBFS(RSA):
+class SIFIPP(RSA):
 
     def __init__(self):
         self.pt = None
@@ -18,17 +18,12 @@ class FIPPBFS(RSA):
         self.reused_pcycles = 0
         self.new_pcycles = 0
 
-    # ============================================================
-    # INIT
-    # ============================================================
     def simulation_interface(self, xml, pt, vt, cp, traffic):
         self.pt = pt
         self.vt = vt
         self.cp = cp
 
-    # ============================================================
-    # BITMAP
-    # ============================================================
+
     def spectrum_to_bitmap(self, spectrum_2d):
         bitmap = 0
         for i, free in enumerate(spectrum_2d[0]):
@@ -61,9 +56,6 @@ class FIPPBFS(RSA):
                 cnt = 0
         return None
 
-    # ============================================================
-    # BFS
-    # ============================================================
     def bfs_incremental(self, src, dst, demand,
                         banned_links=None,
                         forbidden_slots_bitmap=None):
@@ -202,18 +194,13 @@ class FIPPBFS(RSA):
 
         return pcycle, links2, pcycle_slots
 
-    # ============================================================
-    # REUSE PCYCLE (FIXED FULL)
-    # ============================================================
+
     def try_reuse_pcycle(self, wp_links, wp_slots):
 
         new_wp_set = set(wp_links)
 
         for pcycle in self.vt.get_p_cycles():
 
-            # -----------------------------
-            # 1. DISJOINT WITH ALL EXISTING WP
-            # -----------------------------
             conflict = False
             for lp in pcycle.get_protected_lightpaths():
                 if new_wp_set & set(lp.get_links()):
@@ -226,14 +213,8 @@ class FIPPBFS(RSA):
             cycle_links = set(pcycle.get_cycle_links())
             cycle_nodes = set(pcycle.get_nodes())
 
-            # -----------------------------
-            # 2. ON-CYCLE CHECK
-            # -----------------------------
             is_on_cycle = new_wp_set.issubset(cycle_links)
 
-            # -----------------------------
-            # 3. STRADDLING CHECK
-            # -----------------------------
             def is_straddling(link_id):
                 u = self.pt.get_src_link(link_id)
                 v = self.pt.get_dst_link(link_id)
@@ -253,9 +234,6 @@ class FIPPBFS(RSA):
             if not (is_on_cycle or is_straddle):
                 continue
 
-            # -----------------------------
-            # 4. SLOT CHECK
-            # -----------------------------
             p_slots = set(s.slot for s in pcycle.get_slot_list())
             wp_set = set(s.slot for s in wp_slots)
 
@@ -266,9 +244,6 @@ class FIPPBFS(RSA):
 
         return None
 
-    # ============================================================
-    # FLOW ARRIVAL
-    # ============================================================
     def flow_arrival(self, flow: Flow):
 
         demand = math.ceil(
@@ -284,7 +259,6 @@ class FIPPBFS(RSA):
             self.cp.block_flow(flow.get_id())
             return
 
-        # ---------------- REUSE FIRST ----------------
         reused = self.try_reuse_pcycle(wp_links, wp_slots)
 
         if reused:
@@ -328,7 +302,6 @@ class FIPPBFS(RSA):
             )
             return
 
-        # ---------------- NEW PCYCLE ----------------
         self.new_pcycles += 1
 
         pcycle, bp_links, bp_slots = self.build_pcycle(
