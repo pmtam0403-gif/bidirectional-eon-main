@@ -8,23 +8,31 @@ from src.PCycle import PCycle
 from src.ProtectingLightPath import ProtectingLightPath
 
 
-class SIFIPP(RSA):
+class FIPPBFS(RSA):
 
     def __init__(self):
+
         self.pt = None
         self.vt = None
         self.cp = None
+
+        self.graph = None
+        self.full_bitmap = None
 
         self.reused_pcycles = 0
         self.new_pcycles = 0
 
     def simulation_interface(self, xml, pt, vt, cp, traffic):
+
         self.pt = pt
         self.vt = vt
         self.cp = cp
 
+        self.graph = self.pt.get_graph()
+        self.full_bitmap = (1 << self.pt.get_num_slots()) - 1
 
     def spectrum_to_bitmap(self, spectrum_2d):
+
         bitmap = 0
         for i, free in enumerate(spectrum_2d[0]):
             if free:
@@ -32,6 +40,7 @@ class SIFIPP(RSA):
         return bitmap
 
     def has_contiguous(self, bitmap, demand):
+
         cnt = 0
         for i in range(self.pt.get_num_slots()):
             if bitmap & (1 << i):
@@ -43,75 +52,121 @@ class SIFIPP(RSA):
         return False
 
     def bitmap_to_slots(self, bitmap, demand):
+
         cnt = 0
         start = 0
+
         for i in range(self.pt.get_num_slots()):
+
             if bitmap & (1 << i):
+
                 if cnt == 0:
                     start = i
+
                 cnt += 1
+
                 if cnt >= demand:
                     return [Slot(0, j) for j in range(start, start + demand)]
+
             else:
                 cnt = 0
+
         return None
 
-    def bfs_incremental(self, src, dst, demand,
-                        banned_links=None,
-                        forbidden_slots_bitmap=None):
+
+    def get_path_bitmap(self, path):
+
+        bitmap = self.full_bitmap
+
+        for i in range(len(path) - 1):
+            edge_bitmap = self.spectrum_to_bitmap(
+                self.pt.get_spectrum(path[i], path[i + 1])
+            )
+            bitmap &= edge_bitmap
+
+        return bitmap
+
+
+    def bfs_incremental(
+            self,
+            src,
+            dst,
+            demand,
+            banned_links=None,
+            forbidden_slots_bitmap=None
+    ):
 
         if banned_links is None:
             banned_links = set()
 
-        full_bitmap = (1 << self.pt.get_num_slots()) - 1
-        queue = deque([(src, full_bitmap, [src])])
+        queue = deque([(src, self.full_bitmap, [src])])
         visited = set()
 
+        edge_bitmap_cache = {}
+        link_id_cache = {}
+
+        def get_edge_bitmap(u, v):
+            key = (u, v)
+            if key not in edge_bitmap_cache:
+                edge_bitmap_cache[key] = self.spectrum_to_bitmap(
+                    self.pt.get_spectrum(u, v)
+                )
+            return edge_bitmap_cache[key]
+
+        def get_link_id(u, v):
+            key = (u, v)
+            if key not in link_id_cache:
+                link_id_cache[key] = self.pt.get_link_id(u, v)
+            return link_id_cache[key]
+
         while queue:
+
             node, bitmap, path = queue.popleft()
 
             if node == dst:
+
                 candidate = bitmap
                 if forbidden_slots_bitmap is not None:
                     candidate &= ~forbidden_slots_bitmap
+
                 if self.has_contiguous(candidate, demand):
                     return path, candidate
 
-            for neigh in self.pt.get_graph().neighbors(node):
-                link_id = self.pt.get_link_id(node, neigh)
+            for neigh in self.graph.neighbors(node):
+                if neigh in path:
+                    continue
 
+                link_id = get_link_id(node, neigh)
                 if link_id in banned_links:
                     continue
 
-                edge_bitmap = self.spectrum_to_bitmap(
-                    self.pt.get_spectrum(node, neigh)
-                )
-
+                edge_bitmap = get_edge_bitmap(node, neigh)
                 new_bitmap = bitmap & edge_bitmap
 
                 if new_bitmap == 0:
                     continue
 
                 candidate = new_bitmap
+
                 if forbidden_slots_bitmap is not None:
                     candidate &= ~forbidden_slots_bitmap
 
-                if not self.has_contiguous(candidate, demand):
+                if candidate == 0:
                     continue
 
-                state_key = (neigh, new_bitmap)
+                state_key = (neigh, candidate)   # candidate = new_bitmap sau khi áp forbidden
                 if state_key in visited:
                     continue
 
                 visited.add(state_key)
                 queue.append((neigh, new_bitmap, path + [neigh]))
 
+
         return None, None
 
-    # ============================================================
-    # WORKING PATH
-    # ============================================================
+
     def find_working_path(self, flow, demand):
+
         path, bitmap = self.bfs_incremental(
             flow.get_source(),
             flow.get_destination(),
@@ -132,58 +187,103 @@ class SIFIPP(RSA):
 
         return path, links, slots
 
-    # ============================================================
-    # BUILD NEW PCYCLE
-    # ============================================================
+    def get_two_edge_disjoint_paths(self, src, dst):
+
+        G = self.graph
+
+        queue = deque([src])
+        parent = {src: None}
+
+        while queue:
+            u = queue.popleft()
+            if u == dst:
+                break
+            for v in G.adj[u]:
+                if v not in parent:
+                    parent[v] = u
+                    queue.append(v)
+
+        if dst not in parent:
+            return None, None
+
+        path1 = []
+        cur = dst
+        while cur is not None:
+            path1.append(cur)
+            cur = parent[cur]
+        path1.reverse()
+
+        forbidden_edges = set()
+        for i in range(len(path1) - 1):
+            forbidden_edges.add((path1[i], path1[i + 1]))
+            forbidden_edges.add((path1[i + 1], path1[i]))
+
+        queue = deque([src])
+        parent2 = {src: None}
+
+        while queue:
+            u = queue.popleft()
+            if u == dst:
+                break
+            for v in G.adj[u]:
+                if v in parent2:
+                    continue
+                if (u, v) in forbidden_edges:
+                    continue
+                parent2[v] = u
+                queue.append(v)
+
+        if dst not in parent2:
+            return path1, None
+
+        path2 = []
+        cur = dst
+        while cur is not None:
+            path2.append(cur)
+            cur = parent2[cur]
+        path2.reverse()
+
+        return path1, path2
+
     def build_pcycle(self, flow, wp_path, wp_links, wp_slots):
 
         demand = len(wp_slots)
+        src = flow.get_source()
+        dst = flow.get_destination()
 
-        wp_bitmap = 0
-        for s in wp_slots:
-            wp_bitmap |= (1 << s.slot)
+        path1, path2 = self.get_two_edge_disjoint_paths(src, dst)
 
-        path2, bitmap2 = self.bfs_incremental(
-            flow.get_source(),
-            flow.get_destination(),
-            demand,
-            banned_links=set(wp_links),
-            forbidden_slots_bitmap=wp_bitmap
-        )
-
-        if not path2:
+        if not path1 or not path2:
             return None, None, None
 
-        slots2 = self.bitmap_to_slots(bitmap2, demand)
-        if slots2 is None:
+        bitmap1 = self.get_path_bitmap(path1)
+        bitmap2 = self.get_path_bitmap(path2)
+        common_bitmap = bitmap1 & bitmap2
+
+        if not self.has_contiguous(common_bitmap, demand):
             return None, None, None
 
-        if not set(wp_path[1:-1]).isdisjoint(set(path2[1:-1])):
+        pcycle_slots = self.bitmap_to_slots(common_bitmap, demand)
+        if pcycle_slots is None:
             return None, None, None
 
-        links2 = [
+        bp_links = [
             self.pt.get_link_id(path2[i], path2[i + 1])
             for i in range(len(path2) - 1)
         ]
 
-        cycle_nodes = wp_path + path2[-2:0:-1]
+        cycle_nodes = path1 + list(reversed(path2[:-1]))
 
-        cycle_links = []
-        for i in range(len(cycle_nodes) - 1):
-            cycle_links.append(
-                self.pt.get_link_id(cycle_nodes[i], cycle_nodes[i + 1])
-            )
+        cycle_links = [
+            self.pt.get_link_id(cycle_nodes[i], cycle_nodes[i + 1])
+            for i in range(len(cycle_nodes) - 1)
+        ]
 
-        cycle_links.append(
-            self.pt.get_link_id(cycle_nodes[-1], cycle_nodes[0])
-        )
+        last_node = cycle_nodes[-1]
+        first_node = cycle_nodes[0]
 
-        slot_ids = sorted(
-            set(s.slot for s in wp_slots) |
-            set(s.slot for s in slots2)
-        )
-
-        pcycle_slots = [Slot(0, i) for i in slot_ids]
+        if last_node != first_node and self.graph.has_edge(last_node, first_node):
+            cycle_links.append(self.pt.get_link_id(last_node, first_node))
 
         pcycle = PCycle(
             cycle_links,
@@ -192,12 +292,13 @@ class SIFIPP(RSA):
             len(pcycle_slots)
         )
 
-        return pcycle, links2, pcycle_slots
+        return pcycle, bp_links, pcycle_slots
 
 
     def try_reuse_pcycle(self, wp_links, wp_slots):
 
         new_wp_set = set(wp_links)
+        demand = len(wp_slots)
 
         for pcycle in self.vt.get_p_cycles():
 
@@ -206,59 +307,45 @@ class SIFIPP(RSA):
                 if new_wp_set & set(lp.get_links()):
                     conflict = True
                     break
-
             if conflict:
                 continue
 
             cycle_links = set(pcycle.get_cycle_links())
             cycle_nodes = set(pcycle.get_nodes())
 
-            is_on_cycle = new_wp_set.issubset(cycle_links)
-
-            def is_straddling(link_id):
+            def classify_link(link_id):
                 u = self.pt.get_src_link(link_id)
                 v = self.pt.get_dst_link(link_id)
 
-                if u not in cycle_nodes or v not in cycle_nodes:
-                    return False
-
                 if link_id in cycle_links:
-                    return False
+                    return "ON"
+                elif u in cycle_nodes and v in cycle_nodes:
+                    return "STRADDLE"
+                else:
+                    return "INVALID"
 
-                return True
+            link_types = [classify_link(e) for e in wp_links]
 
-            is_straddle = all(
-                is_straddling(e) for e in wp_links
-            )
-
-            if not (is_on_cycle or is_straddle):
+            if any(t == "INVALID" for t in link_types):
                 continue
 
-            p_slots = set(s.slot for s in pcycle.get_slot_list())
-            wp_set = set(s.slot for s in wp_slots)
-
-            if not wp_set.issubset(p_slots):
+            if pcycle.get_reserved_slots() < demand:
                 continue
-
             return pcycle
 
         return None
 
     def flow_arrival(self, flow: Flow):
 
-        demand = math.ceil(
-            flow.get_rate() /
-            self.pt.get_slot_capacity()
-        )
+        demand = math.ceil(flow.get_rate() / self.pt.get_slot_capacity())
 
-        wp_path, wp_links, wp_slots = self.find_working_path(
-            flow, demand
-        )
+        wp_path, wp_links, wp_slots = self.find_working_path(flow, demand)
 
         if not wp_links:
             self.cp.block_flow(flow.get_id())
             return
 
+        # ===== Try reuse p-cycle =====
         reused = self.try_reuse_pcycle(wp_links, wp_slots)
 
         if reused:
@@ -295,18 +382,12 @@ class SIFIPP(RSA):
                 )
             )
 
-            self.cp.accept_flow(
-                flow.get_id(),
-                self.vt.get_light_path(lp_id),
-                False
-            )
+            self.cp.accept_flow(flow.get_id(), self.vt.get_light_path(lp_id), False)
             return
 
         self.new_pcycles += 1
 
-        pcycle, bp_links, bp_slots = self.build_pcycle(
-            flow, wp_path, wp_links, wp_slots
-        )
+        pcycle, bp_links, bp_slots = self.build_pcycle(flow, wp_path, wp_links, wp_slots)
 
         if not pcycle:
             self.cp.block_flow(flow.get_id())
@@ -351,10 +432,8 @@ class SIFIPP(RSA):
             )
         )
 
-        self.cp.accept_flow(
-            flow.get_id(),
-            self.vt.get_light_path(lp_id),
-            False
-        )
+        self.cp.accept_flow(flow.get_id(), self.vt.get_light_path(lp_id), False)
+
+
     def flow_departure(self, flow: Flow):
         pass
