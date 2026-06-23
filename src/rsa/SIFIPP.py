@@ -8,7 +8,7 @@ from src.PCycle import PCycle
 from src.ProtectingLightPath import ProtectingLightPath
 
 
-class FIPPBFS(RSA):
+class SIFIPPBFS(RSA):
 
     def __init__(self):
 
