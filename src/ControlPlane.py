@@ -42,7 +42,8 @@ class ControlPlane(ControlPlaneForRSA):
             #self.rsa = BfsRSA()
             # self.rsa = FIPP()
             #self.rsa = FIPPFlex()
-            self.rsa = FIPPBFS()
+            #self.rsa = FIPPBFS()
+            self.rsa = SIFIPPBFS()
             self.rsa.simulation_interface(xml, pt, vt, self, traffic)
         except Exception as e:
             print("Error in ControlPlane: ", e)
