@@ -17,9 +17,9 @@ from src.ProtectingLightPath import ProtectingLightPath
 class FIPPBFS(RSA):
 
     def __init__(self):
-        self.pt: Optional[PhysicalTopology] = None
-        self.vt: Optional[VirtualTopology] = None
-        self.cp: Optional[ControlPlaneForRSA] = None
+        self.pt: = None
+        self.vt: = None
+        self.cp: = None
         self.graph = None
 
     def simulation_interface(self, xml: ET.Element, pt: PhysicalTopology,
